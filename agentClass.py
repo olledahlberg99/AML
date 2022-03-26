@@ -3,6 +3,8 @@ import random
 import math
 import h5py
 
+def binatodeci(binary):
+    return sum(val*(2**idx) for idx, val in enumerate(reversed(binary)))
 # This file provides the skeleton structure for the classes TQAgent and TDQNAgent to be completed by you, the student.
 # Locations starting with # TO BE COMPLETED BY STUDENT indicates missing code that should be written by you.
 
@@ -18,13 +20,22 @@ class TQAgent:
     def fn_init(self,gameboard):
         self.gameboard=gameboard
         self.actions = []
-
+        action_perm = []
         self.current_state = np.zeros((self.gameboard.N_row * self.gameboard.N_col + len(gameboard.tiles)))
-        print(gameboard.tiles)
-        print(self.current_state)
+
+        N_ACTION_ORIENTATIONS   = 4                
+        N_ACTION_POSITIONS      = gameboard.N_col  
+
+        action_perm.append(range(0, N_ACTION_ORIENTATIONS))
+        action_perm.append(range(0, N_ACTION_POSITIONS))
+
+        for i in itertools.product(*action_perm):
+            self.actions.append(i)      # (action1, action2)
+
+        self.actions = np.array(self.actions)
 
         
-        self.Q_table = np.zeros((2**(self.gameboard.N_row * self.gameboard.N_col + len(gameboard.tiles)), len(self.actions)))
+        self.Q_table = np.zeros((4*2**(self.gameboard.N_row * self.gameboard.N_col), len(self.actions)))
         self.reward_table = np.array((self.episode_count))
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
@@ -44,7 +55,23 @@ class TQAgent:
         # Here you can load the Q-table (to Q-table of self) from the input parameter strategy_file (used to test how the agent plays)
 
     def fn_read_state(self):
-        pass
+
+        current_board = np.ndarray.flatten(self.gameboard.board)
+        current_tile = self.gameboard.cur_tile_type
+        current_tiles = []
+
+        for i in range(len(self.board.tiles)):
+            if i == current_tile:
+                current_tiles.append(1)
+            else:
+                current_tiles.append(-1)
+        
+        self.current_state[:(len(self.current_state)-len(self.gameboard.tiles))] = current_board
+        self.current_state[(len(self.current_state)-len(self.gameboard.tiles)):] = current_tiles
+
+        binary_state = np.where(self.current_state == -1, self.current_state, 0)
+        self.current_state_index = binatodeci(binary_state)
+
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
         # Instructions:
@@ -59,7 +86,24 @@ class TQAgent:
         # 'self.gameboard.cur_tile_type' identifier of the current tile that should be placed on the game board (integer between 0 and len(self.gameboard.tiles))
 
     def fn_select_action(self):
-        pass
+        move_list = []
+        moveQ = - np.inf
+        for i in range(len(self.actions)):
+            if self.gameboard.fn_move([i][0], [i][1]) == 0:
+                move_list.append(1)
+            else:
+                move_list.append(0)
+
+        if self.epsilon < random.randrange(0,1):
+            move = random.choice(range(0,len(self.actions),1,p = move_list))
+        else:
+            for i in range(len(self.actions)):
+                if move_list[i] == 1:
+                    if self.Q_table[self.current_state_index,i] < moveQ:
+                        moveQ = self.Q_table[self.current_state_index,i]
+                        move = i
+
+
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
         # Instructions:

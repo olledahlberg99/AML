@@ -8,7 +8,7 @@ olle.append(range(0,5))
 print(olle)
 for i in itertools.product(*olle):
     dal.append(i)
-    print(olle)
-    print(dal)
+print(olle)
+print(dal)
 
     

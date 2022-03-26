@@ -1,4 +1,6 @@
 import numpy as np
-Q_table = np.zeros((2**(3 * 3 + 3), 4))
-print(Q_table)
-print(len(Q_table))
+import random
+
+a = np.array([[2,3,6,2,2,6]])
+print(random.choice([i for i in a if a[i] == 2]))
+
