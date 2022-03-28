@@ -131,6 +131,15 @@ class TDQNAgent:
 
     def fn_init(self,gameboard):
         self.gameboard=gameboard
+        self.actions = []
+        
+        for i in range(4):
+            for j in range(gameboard.N_col):
+                self.actions.append([i,j])
+        
+        self.current_state = np.zeros((self.gameboard.N_row * self.gameboard.N_col + len(gameboard.tiles), ))
+        self.Q_table = np.zeros((2**(self.gameboard.N_row * self.gameboard.N_col + len(gameboard.tiles)), len(self.actions)))
+        self.reward_table = np.zeros((self.episode_count, ))
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
         # Instructions:
