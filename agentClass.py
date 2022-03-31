@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import torchvision.transforms as T
+#import torchvision.transforms as T
 
 
 def binatodeci(binary):
@@ -40,15 +40,9 @@ class TQAgent:
 
     def fn_read_state(self):
         current_board = np.ndarray.flatten(self.gameboard.board)
-        current_tile = self.gameboard.cur_tile_type
+        current_tiles = np.zeros((len(self.gameboard.tiles),))-1
+        current_tiles[self.gameboard.cur_tile_type] = 1
 
-        current_tiles = []
-
-        for i in range(len(self.gameboard.tiles)):
-            if i == current_tile:
-                current_tiles.append(1)
-            else:
-                current_tiles.append(-1)
 
         self.current_state[:len(self.gameboard.tiles)] = current_tiles
         self.current_state[len(self.gameboard.tiles):] = current_board
@@ -123,22 +117,17 @@ class TQAgent:
 
 class DQN(nn.Module):
 
-    def __init__(self, h, w, outputs):
+    def __init__(self, rows, columns, tiles, actions, numberOfNeurons):
         super(DQN, self).__init__()
-        self.
-        self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=2)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, stride=2)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=5, stride=2)
-        self.bn3 = nn.BatchNorm2d(32)
+        self.layer1 = nn.Linear(rows*columns + tiles, numberOfNeurons)
+        self.layer2 = nn.Linear(numberOfNeurons, numberOfNeurons)
+        self.layer3 = nn.Linear(numberOfNeurons, len(actions))
 
     def forward(self, x):
-        x = x.to(device)
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.relu(self.bn3(self.conv3(x)))
-        return self.head(x.view(x.size(0), -1))
+        x = F.relu(self.layer1(x))
+        x = F.relu(self.layer2(x))
+        x = self.layer3
+        return x
 
 class TDQNAgent:
     # Agent for learning to play tetris using Q-learning
@@ -161,8 +150,14 @@ class TDQNAgent:
             for j in range(gameboard.N_col):
                 self.actions.append([i,j])
         
-        self.current_state = np.zeros((self.gameboard.N_row * self.gameboard.N_col + len(gameboard.tiles), ))
-        self.Q_table = np.zeros((2**(self.gameboard.N_row * self.gameboard.N_col + len(gameboard.tiles)), len(self.actions)))
+        self.network = DQN(gameboard.N_row,gameboard.N_cols, gameboard.tiles, self.actions, 64)
+        self.target_network = DQN(gameboard.N_row,gameboard.N_cols, gameboard.tiles, self.actions, 64)
+        self.target_network.load_state_dict(self.network.state_dict())
+        self.target_network.eval()
+        self.optimizer = optim.RMSprop(self.network.parameters())
+        self.memory = ReplayMemory(10000)
+        self.steps_done = 0
+
         self.reward_table = np.zeros((self.episode_count, ))
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
@@ -185,7 +180,15 @@ class TDQNAgent:
         # Here you can load the Q-network (to Q-network of self) from the strategy_file
 
     def fn_read_state(self):
-        pass
+        current_board = np.ndarray.flatten(self.gameboard.board)
+        
+        current_tiles = np.zeros((len(self.gameboard.tiles),))-1
+        current_tiles[self.gameboard.current_tile_type] = 1
+
+        self.current_state[:len(self.gameboard.tiles)] = current_tiles
+        self.current_state[len(self.gameboard.tiles):] = current_board
+
+
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
         # Instructions:
@@ -200,7 +203,21 @@ class TDQNAgent:
         # 'self.gameboard.cur_tile_type' identifier of the current tile that should be placed on the game board (integer between 0 and len(self.gameboard.tiles))
 
     def fn_select_action(self):
-        pass
+
+        move_list = []
+        for i in range(len(self.actions)):
+            if self.gameboard.fn_move(self.actions[i][0], self.actions[i][1]) == 1:
+                move_list.append(0)
+            else:
+                move_list.append(1)
+        move_list = np.divide(move_list,np.sum(move_list))
+
+        if random.uniform(0,1) < self.epsilon:
+            self.action_index = np.random.choice(range(len(self.actions)), 1, p = move_list)
+        else:
+            while self.gameboard.fn_move(self.actions[np.argmax(self.Q_table[self.state_index, :])][0], self.actions[np.argmax(self.Q_table[self.state_index, :])][1]) == 1:
+                self.Q_table[self.state_index, np.argmax(self.Q_table[self.state_index, :])] = - np.inf
+            self.action_index = np.argmax(self.Q_table[self.state_index, :])
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
         # Instructions:
