@@ -115,6 +115,26 @@ class TQAgent:
             # Update the Q-table using the old state and the reward (the new state and the taken action should be stored as attributes in self)
             self.fn_reinforce(old_state,reward)
 
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward'))
+
+
+class ReplayMemory(object):
+
+    def __init__(self, capacity):
+        self.memory = deque([],maxlen=capacity)
+
+    def push(self, *args):
+        """Save a transition"""
+        self.memory.append(Transition(*args))
+
+    def sample(self, batch_size):
+        return random.sample(self.memory, batch_size)
+
+    def __len__(self):
+        return len(self.memory)
+
+
 class DQN(nn.Module):
 
     def __init__(self, rows, columns, tiles, actions, numberOfNeurons):
@@ -126,7 +146,7 @@ class DQN(nn.Module):
     def forward(self, x):
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
-        x = self.layer3
+        x = self.layer3(x)
         return x
 
 class TDQNAgent:
@@ -149,13 +169,13 @@ class TDQNAgent:
         for i in range(4):
             for j in range(gameboard.N_col):
                 self.actions.append([i,j])
-        
         self.network = DQN(gameboard.N_row,gameboard.N_cols, gameboard.tiles, self.actions, 64)
         self.target_network = DQN(gameboard.N_row,gameboard.N_cols, gameboard.tiles, self.actions, 64)
+        
         self.target_network.load_state_dict(self.network.state_dict())
         self.target_network.eval()
         self.optimizer = optim.RMSprop(self.network.parameters())
-        self.memory = ReplayMemory(10000)
+        self.memory = ReplayMemory(self.replay_buffer_size)
         self.steps_done = 0
 
         self.reward_table = np.zeros((self.episode_count, ))
@@ -188,7 +208,6 @@ class TDQNAgent:
         self.current_state[:len(self.gameboard.tiles)] = current_tiles
         self.current_state[len(self.gameboard.tiles):] = current_board
 
-
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
         # Instructions:
@@ -204,20 +223,12 @@ class TDQNAgent:
 
     def fn_select_action(self):
 
-        move_list = []
-        for i in range(len(self.actions)):
-            if self.gameboard.fn_move(self.actions[i][0], self.actions[i][1]) == 1:
-                move_list.append(0)
-            else:
-                move_list.append(1)
-        move_list = np.divide(move_list,np.sum(move_list))
-
-        if random.uniform(0,1) < self.epsilon:
-            self.action_index = np.random.choice(range(len(self.actions)), 1, p = move_list)
+        if random.uniform(0,1) < max(self.epsilon,1-self.episode_count/self.epsilon_scale):
+            self.action_index = random.randint(0,len(self.actions))
+            self.gameboard.fn_move(self.actions[self.action_index][0],self.actions[self.action_index][1])
         else:
-            while self.gameboard.fn_move(self.actions[np.argmax(self.Q_table[self.state_index, :])][0], self.actions[np.argmax(self.Q_table[self.state_index, :])][1]) == 1:
-                self.Q_table[self.state_index, np.argmax(self.Q_table[self.state_index, :])] = - np.inf
-            self.action_index = np.argmax(self.Q_table[self.state_index, :])
+            self.action_index = self.target_network(self.current_state).argmax().item()
+            self.gameboard.fn_move(self.actions[self.action_index][0],self.actions[self.action_index][1])
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
         # Instructions:
@@ -236,7 +247,20 @@ class TDQNAgent:
         # You can use this function to map out which actions are valid or not
 
     def fn_reinforce(self,batch):
-        pass
+        non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
+        non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
+        
+        state_batch = torch.cat(batch.state)
+        action_batch = torch.cat(batch.action)
+        reward_batch = torch.cat(batch.reward)
+        term_batch = torch.cat(batch.term)
+
+        state_action_values = self.network(state_batch).gather(1, action_batch)
+
+        next_state_values = torch.zeros(self.batch_size, device=device)
+        next_state_values[non_final_mask] = self.target_network(non_final_next_states).max(1)[0].detach()
+        expected_state_action_values = (next_state_values * GAMMA) + reward_batch
+        
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
         # Instructions:
@@ -256,14 +280,14 @@ class TDQNAgent:
             if self.episode%1000==0:
                 saveEpisodes=[1000,2000,5000,10000,20000,50000,100000,200000,500000,1000000];
                 if self.episode in saveEpisodes:
-                    pass
+                    np.savetxt("Rewards.csv", self.reward_table)
                     # TO BE COMPLETED BY STUDENT
                     # Here you can save the rewards and the Q-network to data files
             if self.episode>=self.episode_count:
                 raise SystemExit(0)
             else:
                 if (len(self.exp_buffer) >= self.replay_buffer_size) and ((self.episode % self.sync_target_episode_count)==0):
-                    pass
+                    self.target_network = copy.deepcopy(self.network)
                     # TO BE COMPLETED BY STUDENT
                     # Here you should write line(s) to copy the current network to the target network
                 self.gameboard.fn_restart()
@@ -272,19 +296,19 @@ class TDQNAgent:
             self.fn_select_action()
             # TO BE COMPLETED BY STUDENT
             # Here you should write line(s) to copy the old state into the variable 'old_state' which is later stored in the ecperience replay buffer
-
+            old_state = copy.deepcopy(self.current_state)
             # Drop the tile on the game board
             reward=self.gameboard.fn_drop()
 
             # TO BE COMPLETED BY STUDENT
             # Here you should write line(s) to add the current reward to the total reward for the current episode, so you can save it to disk later
-
+            self.reward_table[self.episode] += reward
             # Read the new state
             self.fn_read_state()
 
             # TO BE COMPLETED BY STUDENT
             # Here you should write line(s) to store the state in the experience replay buffer
-
+            self.memory.push(old_state, action, self.current_state, torch.tensor([reward]), term)
             if len(self.exp_buffer) >= self.replay_buffer_size:
                 # TO BE COMPLETED BY STUDENT
                 # Here you should write line(s) to create a variable 'batch' containing 'self.batch_size' quadruplets 
