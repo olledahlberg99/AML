@@ -154,8 +154,10 @@ class TQAgent:
             # Update the Q-table using the old state and the reward (the new state and the taken action should be stored as attributes in self)
             self.fn_reinforce(old_state,reward)
 
+# Transition = namedtuple('Transition',
+#                         ('state', 'action', 'next_state', 'reward', 'term'))
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward', 'term'))
+                        ('state', 'action', 'reward', 'next_state'))
 class ReplayMemory(object):
 
     def __init__(self, capacity):
@@ -258,8 +260,6 @@ class TDQNAgent:
 
     def fn_reinforce(self,batch):
 
-        
-
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
                                             batch.next_state)), dtype=torch.bool)
 
@@ -269,7 +269,7 @@ class TDQNAgent:
         state_batch = torch.cat(batch.state)
         action_batch = torch.cat(batch.action)
         reward_batch = torch.cat(batch.reward)
-        term_batch = torch.cat(batch.term)
+        # term_batch = torch.cat(batch.term)
 
         state_action_values = self.Q_net(state_batch).gather(1, action_batch)
 
@@ -277,13 +277,19 @@ class TDQNAgent:
         next_state_values[non_final_mask] = self.Q_target(non_final_next_states).max(1)[0].detach()
 
 
-        GAMMA = 0.99
-        
-        expected_state_action_values = reward_batch + next_state_values * GAMMA * term_batch
+        GAMMA = torch.tensor(0.99)
 
-        loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+        if self.gameboard.gameover: 
+            expected_state_action_values = reward_batch
+        else:
+            expected_state_action_values = reward_batch + next_state_values * GAMMA
         
-        # Optimize the model
+        #expected_state_action_values = reward_batch + next_state_values * GAMMA * term_batch
+        loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+
+        #loss = F.mse_loss(state_action_values, expected_state_action_values.unsqueeze(1))
+  
+
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -312,15 +318,8 @@ class TDQNAgent:
             self.fn_select_action()
             # TO BE COMPLETED BY STUDENT
             # Here you should write line(s) to copy the old state into the variable 'old_state' which is later stored in the ecperience replay buffer
-            old_state = copy.deepcopy(self.current_state_np)
-            
-            old_state = torch.tensor([old_state])
-            
-            #actions = np.zeros((len(self.actions, )))
-            #actions[actions == 0] = -1
-            #actions[self.current_action_idx] = 1
+            old_state = copy.deepcopy(torch.tensor([self.current_state_np]))    
             action = copy.deepcopy(torch.tensor([[self.current_action_idx]], dtype=torch.long))
-
             # Drop the tile on the game board
             reward=copy.deepcopy(self.gameboard.fn_drop())
 
@@ -331,12 +330,14 @@ class TDQNAgent:
             # Read the new state
             self.fn_read_state()
 
-            if self.gameboard.gameover:
-                term = torch.tensor([0])
-            else:
-                term = torch.tensor([1])
+            # if self.gameboard.gameover:
+            #     term = torch.tensor([0])
+            # else:
+            #     term = torch.tensor([1])
 
-            self.replay.push(old_state, action, self.current_state, torch.tensor([reward]), term)
+            #self.replay.push(old_state, action, self.current_state, torch.tensor([reward]), term)
+            self.replay.push(old_state, action, torch.tensor([reward]),self.current_state)
+         
 
             if len(self.replay) >= self.replay_buffer_size:
                 # TO BE COMPLETED BY STUDENT
