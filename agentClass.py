@@ -2,12 +2,21 @@ import numpy as np
 import random
 import math
 import h5py
+import gym
+import random
+import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+from collections import namedtuple, deque
+from itertools import count
+from PIL import Image
+import copy
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-#import torchvision.transforms as T
+import torchvision.transforms as T
 
 
 def binatodeci(binary):
@@ -115,18 +124,24 @@ class TQAgent:
             # Update the Q-table using the old state and the reward (the new state and the taken action should be stored as attributes in self)
             self.fn_reinforce(old_state,reward)
 
-Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+Transition = namedtuple('Transition',('state', 'action', 'next_state', 'reward'))
 
 
 class ReplayMemory(object):
 
     def __init__(self, capacity):
-        self.memory = deque([],maxlen=capacity)
+        # self.memory = deque([],maxlen=capacity)
+        self.capacity = capacity
+        self.memory = []
+        self.position = 0
 
     def push(self, *args):
-        """Save a transition"""
-        self.memory.append(Transition(*args))
+        # """Save a transition"""
+        # self.memory.append(Transition(*args))
+        if len(self.memory) < self.capacity:
+            self.memory.append(None)
+        self.memory[self.position] = Transition(*args)
+        self.position = (self.position + 1) % self.capacity
 
     def sample(self, batch_size):
         return random.sample(self.memory, batch_size)
@@ -139,11 +154,12 @@ class DQN(nn.Module):
 
     def __init__(self, rows, columns, tiles, actions, numberOfNeurons):
         super(DQN, self).__init__()
-        self.layer1 = nn.Linear(rows*columns + tiles, numberOfNeurons)
+        self.layer1 = nn.Linear(rows*columns + len(tiles), numberOfNeurons)
         self.layer2 = nn.Linear(numberOfNeurons, numberOfNeurons)
         self.layer3 = nn.Linear(numberOfNeurons, len(actions))
 
     def forward(self, x):
+        x = x.float()
         x = F.relu(self.layer1(x))
         x = F.relu(self.layer2(x))
         x = self.layer3(x)
@@ -169,8 +185,8 @@ class TDQNAgent:
         for i in range(4):
             for j in range(gameboard.N_col):
                 self.actions.append([i,j])
-        self.network = DQN(gameboard.N_row,gameboard.N_cols, gameboard.tiles, self.actions, 64)
-        self.target_network = DQN(gameboard.N_row,gameboard.N_cols, gameboard.tiles, self.actions, 64)
+        self.network = DQN(gameboard.N_row,gameboard.N_col, gameboard.tiles, self.actions, 64)
+        self.target_network = DQN(gameboard.N_row,gameboard.N_col, gameboard.tiles, self.actions, 64)
         
         self.target_network.load_state_dict(self.network.state_dict())
         self.target_network.eval()
@@ -203,11 +219,12 @@ class TDQNAgent:
         current_board = np.ndarray.flatten(self.gameboard.board)
         
         current_tiles = np.zeros((len(self.gameboard.tiles),))-1
-        current_tiles[self.gameboard.current_tile_type] = 1
+        current_tiles[self.gameboard.cur_tile_type] = 1
 
+        self.current_state = np.zeros((len(current_board)+len(current_tiles),))
         self.current_state[:len(self.gameboard.tiles)] = current_tiles
         self.current_state[len(self.gameboard.tiles):] = current_board
-
+        self.current_state = torch.from_numpy(self.current_state)
         # TO BE COMPLETED BY STUDENT
         # This function should be written by you
         # Instructions:
@@ -247,6 +264,7 @@ class TDQNAgent:
         # You can use this function to map out which actions are valid or not
 
     def fn_reinforce(self,batch):
+        GAMMA = 0.999
         non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
         non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
         
@@ -299,13 +317,13 @@ class TDQNAgent:
             old_state = copy.deepcopy(self.current_state)
             # Drop the tile on the game board
             reward=self.gameboard.fn_drop()
-
+            action = self.action_index
             # TO BE COMPLETED BY STUDENT
             # Here you should write line(s) to add the current reward to the total reward for the current episode, so you can save it to disk later
             self.reward_table[self.episode] += reward
             # Read the new state
             self.fn_read_state()
-
+            term = 1
             # TO BE COMPLETED BY STUDENT
             # Here you should write line(s) to store the state in the experience replay buffer
             self.memory.push(old_state, action, self.current_state, torch.tensor([reward]), term)
